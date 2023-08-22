@@ -585,6 +585,8 @@ def start(
 ):
     """Start Ray processes manually on the local machine."""
 
+    curr_time = datetime.now()
+
     if gcs_server_port is not None:
         cli_logger.error(
             "`{}` is deprecated and ignored. Use {} to specify "
@@ -625,6 +627,10 @@ def start(
         temp_dir = None
 
     redirect_output = None if not no_redirect_output else True
+
+    prev_time = curr_time
+    curr_time = datetime.now()
+    logger.info("vct delta A " + str(curr_time - prev_time))
 
     # no  client, no  port -> ok
     # no  port, has client -> default to 10001
@@ -675,9 +681,12 @@ def start(
     if ray_constants.RAY_START_HOOK in os.environ:
         _load_class(os.environ[ray_constants.RAY_START_HOOK])(ray_params, head)
 
+    prev_time = curr_time
+    curr_time = datetime.now()
+    logger.info("vct delta B " + str(curr_time - prev_time))
+
     if head:
         # Start head node.
-
         if disable_usage_stats:
             usage_lib.set_usage_stats_enabled_via_env_var(False)
         usage_lib.show_usage_stats_prompt(cli=True)
@@ -703,6 +712,10 @@ def start(
             # Infer the number of Redis shards from the ports if the number is
             # not provided.
             num_redis_shards = len(redis_shard_ports)
+
+        prev_time = curr_time
+        curr_time = datetime.now()
+        logger.info("vct delta C " + str(curr_time - prev_time))
 
         # This logic is deprecated and will be removed later.
         if address is not None:
@@ -760,9 +773,17 @@ def start(
                     " flag of `ray start` command."
                 )
 
+        prev_time = curr_time
+        curr_time = datetime.now()
+        logger.info("vct delta D" + str(curr_time - prev_time))
+
         node = ray._private.node.Node(
             ray_params, head=True, shutdown_at_exit=block, spawn_reaper=block
         )
+
+        prev_time = curr_time
+        curr_time = datetime.now()
+        logger.info("vct delta E" + str(curr_time - prev_time))
 
         bootstrap_address = node.address
 
@@ -934,6 +955,10 @@ def start(
         cli_logger.print("To terminate the Ray runtime, run")
         cli_logger.print(cf.bold("  ray stop"))
         cli_logger.flush()
+
+    prev_time = curr_time
+    curr_time = datetime.now()
+    logger.info("vct delta F" + str(curr_time - prev_time))
 
     assert ray_params.gcs_address is not None
     ray._private.utils.write_ray_address(ray_params.gcs_address, temp_dir)
