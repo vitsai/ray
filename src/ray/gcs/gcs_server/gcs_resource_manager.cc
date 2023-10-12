@@ -15,6 +15,8 @@
 #include "ray/gcs/gcs_server/gcs_resource_manager.h"
 
 #include "ray/common/ray_config.h"
+#include "ray/gcs/gcs_server/gcs_autoscaler_state_manager.h"
+#include "ray/gcs/gcs_server/gcs_server.h"
 #include "ray/stats/metric_defs.h"
 
 namespace ray {
@@ -24,11 +26,13 @@ GcsResourceManager::GcsResourceManager(
     instrumented_io_context &io_context,
     ClusterResourceManager &cluster_resource_manager,
     GcsNodeManager &gcs_node_manager,
+    GcsServer &gcs_server,
     NodeID local_node_id,
     std::shared_ptr<ClusterTaskManager> cluster_task_manager)
     : io_context_(io_context),
       cluster_resource_manager_(cluster_resource_manager),
       gcs_node_manager_(gcs_node_manager),
+      gcs_server_(gcs_server),
       local_node_id_(std::move(local_node_id)),
       cluster_task_manager_(std::move(cluster_task_manager)) {}
 
@@ -186,18 +190,18 @@ void GcsResourceManager::HandleGetAllResourceUsage(
     rpc::GetAllResourceUsageRequest request,
     rpc::GetAllResourceUsageReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
-  
   // This is a hack. We use the stale but less inconsistent resource info
   // from GCS autoscaler state manager instead of our local resource info.
-  if (!gcs_autoscaler_state_manager_.node_resource_info_.empty()) {
+  if (!gcs_server_.GetAutoscalerStateManager().GetNodeResourceInfo().empty()) {
     rpc::ResourceUsageBatchData batch;
     std::unordered_map<google::protobuf::Map<std::string, double>, rpc::ResourceDemand>
         aggregate_load;
 
-    for (const auto &usage : gcs_autoscaler_state_manager_.node_resource_info_) {
+    for (const auto &usage :
+         gcs_server_.GetAutoscalerStateManager().GetNodeResourceInfo()) {
       // Aggregate the load reported by each raylet.
-      FillAggregateLoad(usage.second, &aggregate_load);
-      batch.add_batch()->CopyFrom(usage.second);
+      FillAggregateLoad(usage.second.second, &aggregate_load);
+      batch.add_batch()->CopyFrom(usage.second.second);
     }
 
     if (cluster_task_manager_) {
@@ -234,11 +238,12 @@ void GcsResourceManager::HandleGetAllResourceUsage(
   }
 
   if (static_cast<size_t>(reply->resource_usage_data().batch().size()) ==
-             num_alive_nodes_) {
-              RAY_LOG(DEBUG) << "Number of alive nodes " << num_alive_nodes_
-              << " is not equal to number of usage reports "
-              << reply->resource_usage_data().batch().size() << " in the autoscaler report.";
-             }
+      num_alive_nodes_) {
+    RAY_LOG(DEBUG) << "Number of alive nodes " << num_alive_nodes_
+                   << " is not equal to number of usage reports "
+                   << reply->resource_usage_data().batch().size()
+                   << " in the autoscaler report.";
+  }
   GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
   ++counts_[CountType::GET_ALL_RESOURCE_USAGE_REQUEST];
 }
