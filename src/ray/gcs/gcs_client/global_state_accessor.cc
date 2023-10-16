@@ -160,7 +160,7 @@ std::unique_ptr<std::string> GlobalStateAccessor::GetAllResourceUsage() {
   std::promise<bool> promise;
   {
     absl::ReaderMutexLock lock(&mutex_);
-    RAY_CHECK_OK(gcs_client_->NodeResources().AsyncGetAllResourceUsage(
+    RAY_CHECK_OK(gcs_client_->NodeResources().AsyncGetAllResourceUsageLegacy(
         TransformForItemCallback<rpc::ResourceUsageBatchData>(resource_batch_data,
                                                               promise)));
   }

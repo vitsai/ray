@@ -119,6 +119,11 @@ namespace rpc {
                       HANDLER,                 \
                       RayConfig::instance().gcs_max_active_rpcs_per_handler())
 
+#define LEGACY_AUTOSCALER_SERVICE_RPC_HANDLER(HANDLER) \
+  RPC_SERVICE_HANDLER(LegacyAutoscalerGcsService,      \
+                      HANDLER,                         \
+                      RayConfig::instance().gcs_max_active_rpcs_per_handler())
+
 #define NODE_RESOURCE_INFO_SERVICE_RPC_HANDLER(HANDLER) \
   RPC_SERVICE_HANDLER(NodeResourceInfoGcsService,       \
                       HANDLER,                          \
@@ -333,6 +338,43 @@ class MonitorGrpcService : public GrpcService {
   MonitorGcsService::AsyncService service_;
   /// The service handler that actually handle the requests.
   MonitorGcsServiceHandler &service_handler_;
+};
+
+// Legacy RPC interface for supporting autoscaler v1
+class LegacyAutoscalerServiceHandler {
+ public:
+  virtual ~LegacyAutoscalerServiceHandler() = default;
+
+  virtual void HandleGetAllResourceUsageLegacy(GetAllResourceUsageRequest request,
+                                               GetAllResourceUsageReply *reply,
+                                               SendReplyCallback send_reply_callback) = 0;
+};
+
+/// The `GrpcService` for `LegacyAutoscalerGcsService`.
+class LegacyAutoscalerGrpcService : public GrpcService {
+ public:
+  /// Constructor.
+  ///
+  /// \param[in] handler The service handler that actually handle the requests.
+  explicit LegacyAutoscalerGrpcService(instrumented_io_context &io_service,
+                                       LegacyAutoscalerServiceHandler &handler)
+      : GrpcService(io_service), service_handler_(handler){};
+
+ protected:
+  grpc::Service &GetGrpcService() override { return service_; }
+
+  void InitServerCallFactories(
+      const std::unique_ptr<grpc::ServerCompletionQueue> &cq,
+      std::vector<std::unique_ptr<ServerCallFactory>> *server_call_factories,
+      const ClusterID &cluster_id) override {
+    LEGACY_AUTOSCALER_SERVICE_RPC_HANDLER(GetAllResourceUsageLegacy);
+  }
+
+ private:
+  /// The grpc async service object.
+  LegacyAutoscalerGcsService::AsyncService service_;
+  /// The service handler that actually handle the requests.
+  LegacyAutoscalerGcsServiceHandler &service_handler_;
 };
 
 class NodeInfoGcsServiceHandler {
@@ -745,6 +787,7 @@ using InternalKVHandler = InternalKVGcsServiceHandler;
 using InternalPubSubHandler = InternalPubSubGcsServiceHandler;
 using RuntimeEnvHandler = RuntimeEnvGcsServiceHandler;
 using TaskInfoHandler = TaskInfoGcsServiceHandler;
+using LegacyAutoscalerHandler = LegacyAutoscalerServiceHandler;
 
 }  // namespace rpc
 }  // namespace ray

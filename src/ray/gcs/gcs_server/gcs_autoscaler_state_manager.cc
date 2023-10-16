@@ -34,6 +34,65 @@ GcsAutoscalerStateManager::GcsAutoscalerStateManager(
       last_cluster_resource_state_version_(0),
       last_seen_autoscaler_state_version_(0) {}
 
+GcsAutoscalerStateManager::HandleGetAllResourceUsageLegacy(
+    rpc::GetAllResourceUsageRequest request,
+    rpc::GetAllResourceUsageReply *reply,
+    rpc::SendReplyCallback send_reply_callback) {
+  if (!node_resource_info_.empty()) {
+    rpc::ResourceUsageBatchData batch;
+    std::unordered_map<google::protobuf::Map<std::string, double>, rpc::ResourceDemand>
+        aggregate_load;
+
+    for (const auto &usage : node_resource_info_) {
+      // Aggregate the load reported by each raylet.
+      FillAggregateLoad(usage.second.second, &aggregate_load);
+      batch.add_batch()->CopyFrom(usage.second.second);
+    }
+
+    if (cluster_task_manager_) {
+      // Fill the gcs info when gcs actor scheduler is enabled.
+      rpc::ResourcesData gcs_resources_data;
+      // TODO(vitsai) away with ye, harlot!
+      cluster_task_manager_->FillPendingActorInfo(gcs_resources_data);
+      // Aggregate the load (pending actor info) of gcs.
+      FillAggregateLoad(gcs_resources_data, &aggregate_load);
+      // We only export gcs's pending info without adding the corresponding
+      // `ResourcesData` to the `batch` list. So if gcs has detected cluster full of
+      // actors, set the dedicated field in reply.
+      if (gcs_resources_data.cluster_full_of_actors_detected()) {
+        reply->set_cluster_full_of_actors_detected_by_gcs(true);
+      }
+    }
+
+    for (const auto &demand : aggregate_load) {
+      auto demand_proto = batch.mutable_resource_load_by_shape()->add_resource_demands();
+      demand_proto->CopyFrom(demand.second);
+      for (const auto &resource_pair : demand.first) {
+        (*demand_proto->mutable_shape())[resource_pair.first] = resource_pair.second;
+      }
+    }
+    // Update placement group load to heartbeat batch.
+    // This is updated only one per second.
+    if (placement_group_load_.has_value()) {
+      auto placement_group_load = placement_group_load_.value();
+      auto placement_group_load_proto = batch.mutable_placement_group_load();
+      placement_group_load_proto->CopyFrom(*placement_group_load.get());
+    }
+
+    reply->mutable_resource_usage_data()->CopyFrom(batch);
+  }
+
+  if (static_cast<size_t>(reply->resource_usage_data().batch().size()) ==
+      num_alive_nodes_) {
+    RAY_LOG(DEBUG) << "Number of alive nodes " << num_alive_nodes_
+                   << " is not equal to number of usage reports "
+                   << reply->resource_usage_data().batch().size()
+                   << " in the autoscaler report.";
+  }
+  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+  ++counts_[CountType::GET_ALL_RESOURCE_USAGE_REQUEST];
+}
+
 void GcsAutoscalerStateManager::HandleGetClusterResourceState(
     rpc::autoscaler::GetClusterResourceStateRequest request,
     rpc::autoscaler::GetClusterResourceStateReply *reply,

@@ -681,6 +681,9 @@ void GcsServer::InitGcsAutoscalerStateManager() {
                                                   *gcs_node_manager_,
                                                   *gcs_placement_group_manager_,
                                                   raylet_client_pool_);
+  legacy_autoscaler_service_.reset(new rpc::LegacyAutoscalerGrpcService(
+      main_service_, *gcs_autoscaler_state_manager_));
+  rpc_server_.RegisterService(*legacy_autoscaler_service_);
 
   autoscaler_state_service_.reset(new rpc::autoscaler::AutoscalerStateGrpcService(
       main_service_, *gcs_autoscaler_state_manager_));
